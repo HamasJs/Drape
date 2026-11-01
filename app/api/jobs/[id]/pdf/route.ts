@@ -29,7 +29,7 @@ export async function GET(
     const job = data.payload as Job & { branding?: Profile };
     if (job.status !== "Approved")
       throw new AssistantError(
-        "Approve the quotation before downloading a PDF.",
+        "Confirm the measurements and mark the quotation ready to send before downloading a PDF.",
         409,
       );
     return new Response(quotationPdf(job, job.branding || DEFAULT_PROFILE), {

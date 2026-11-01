@@ -111,3 +111,13 @@ Run `npm run check:config` locally to check required variables without printing 
 AI routes explicitly export `maxDuration = 90`. The provider request has a 60-second timeout; Gemini 3 models use low thinking for these bounded extraction/transcription tasks. In Vercel Runtime Logs, `assistant.stage`, `assistant.failure`, `gemini.response` and `gemini.request_failed` show the stage, model, status, elapsed time and a correlation ID. They do not log descriptions, audio or keys. A 504 status alone does not distinguish an app/provider timeout from Vercel terminating the function. Check the last stage and Vercel invocation duration/error code after redeploying these logs. Request duration still depends on the model, service availability, and hosting limits.
 
 Auth forms provide accessible Show/Hide controls, local field validation, neutral unknown-email/wrong-password feedback, resend cooldowns and recovery links. Hosted delivery and provider rate limits still require the setup above.
+
+## Shop pricing and public demo update
+
+After migration 001, run `supabase/migrations/002_shop_pricing.sql` once in the Supabase SQL editor before deploying this update. Existing installations must apply 002; new installations apply both files in order. Do not rerun 001 on an existing database.
+
+The migration validates editable shop rates and price notes, creates private per-shop yearly reference counters, and assigns current quotes short references. Original numbers are retained as `legacyNumber`; historical revision payloads are unchanged. Prices and customer data are unchanged by the migration. References use the Asia/Riyadh calendar year and grow beyond four digits without truncation.
+
+Settings affect new quotes only. Existing quotes and PDFs retain their saved rates and terms. Installation, delivery and other-charge fields are descriptive; they do not add fees automatically. Shops must include required charges in their rates and make exclusions explicit. The displayed “Ready to send” status is internal review only; the existing database status remains `Approved` for compatibility and does not represent customer acceptance.
+
+The public homepage `/` and sample workspace `/demo` require no account. The private studio is now `/studio`; login and email confirmation redirect there. Share the homepage with prospects. The sample PDF and interactive demo run locally in the browser, never call Gemini or read private jobs. Static screenshot and silent 12-second sample video are under `public/`.

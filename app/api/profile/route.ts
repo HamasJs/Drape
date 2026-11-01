@@ -20,7 +20,7 @@ export async function GET(request: Request) {
       .maybeSingle();
     if (error)
       throw databaseError(error, "Business profile could not be loaded.");
-    return privateJson({ profile: data?.data || DEFAULT_PROFILE });
+    return privateJson({ profile: { ...DEFAULT_PROFILE, ...data?.data } });
   } catch (e) {
     return errorResponse(e);
   }

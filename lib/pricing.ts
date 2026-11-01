@@ -9,6 +9,7 @@ export type WindowItem = {
   confirmed: boolean;
 };
 export type Job = {
+  branding?: import("./job-validation.ts").Profile;
   version?: number;
   id: string;
   number: string;
@@ -97,3 +98,5 @@ export function isSavedJob(value: unknown): value is Job {
     )
   );
 }
+
+export const quoteStatus = (job: Job) => job.status === "Approved" ? "Ready to send" : "Draft";

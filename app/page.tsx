@@ -1,14 +1,13 @@
-import { redirect } from "next/navigation";
-import { authConfigured } from "../lib/supabase/config";
-import { serverAuth } from "../lib/supabase/server";
-import SetupRequired from "../components/SetupRequired";
-import QuoteStudio from "../components/QuoteStudio";
-export const dynamic = "force-dynamic";
-export default async function Page() {
-  if (!authConfigured()) return <SetupRequired />;
-  const auth = await serverAuth();
-  const { data, error } = await auth.auth.getUser();
-  if (error || !data.user || !data.user.email_confirmed_at)
-    redirect("/sign-in");
-  return <QuoteStudio email={data.user.email || ""} accountId={data.user.id} />;
+import Link from "next/link";
+import PublicNav from "../components/PublicNav";
+export const metadata = { title: "Drape | From window measurements to a quote", description: "A curtain shop’s workspace for voice notes, exact pricing and customer-ready PDF quotations. Try the public demo." };
+export default function Page() {
+  return <main className="showcase">
+    <PublicNav />
+    <section className="public-hero"><div><span className="public-kicker">FOR CURTAIN SHOPS / MADE TO MEASURE</span><h1>Less paperwork.<br /><em>More beautiful</em><br />windows.</h1><p>Turn a customer’s request into a clear quotation. Check the measurements, use your own rates, and send a PDF you’re proud of.</p><Link className="public-cta" href="/demo">Make a sample quote ↗</Link><p className="public-small">No login. No customer data. Just try it.</p></div><div className="curtain-scene" aria-label="Illustration of apricot curtains framing a lilac window"><div className="window-light" /><div className="showcase-curtain left-curtain" /><div className="showcase-curtain right-curtain" /><div className="floating-quote"><span>READY TO SEND</span><h3>Ahmed’s lounge</h3><p>2.4 m × SAR 350/m</p><strong>SAR 840.00</strong><small>Sample quotation</small></div></div></section>
+    <section className="public-steps"><article><span>01 / CAPTURE</span><h2>Say it naturally.</h2><p>Speak or type the request. Gemini organizes the details for you to review.</p></article><article><span>02 / CHECK</span><h2>Your rates. Exact widths.</h2><p>You confirm dimensions and quantities. Code calculates the price from your shop’s saved rate list.</p></article><article><span>03 / SEND</span><h2>A quote worth keeping.</h2><p>Generate a branded PDF and keep private jobs and revision history in your studio.</p></article></section>
+    <section className="public-preview"><div><span className="public-kicker">A LOOK INSIDE</span><h2>One calm place<br />to finish the quote.</h2><p>Explore a sample workspace, adjust a price and download a PDF before creating an account.</p><Link href="/demo">Open the sample workspace ↗</Link></div><figure><img src="/demo-workspace.png" alt="Sample Drape workspace showing an editable window and its calculated quotation" width="1200" height="750" /><figcaption>Sample workspace · fictional customer</figcaption></figure></section>
+    <section className="public-preview"><div><span className="public-kicker">THE QUICK TOUR</span><h2>From request<br />to ready.</h2><p>A short silent walkthrough of the sample quoting flow.</p></div><video controls playsInline preload="metadata" poster="/demo-workspace.png" aria-label="Short sample quotation walkthrough"><source src="/demo-walkthrough.mp4" type="video/mp4" />Explore the <Link href="/demo">interactive demo</Link>.</video></section>
+    <footer className="public-footer"><span>drape / Made for the work behind the window.</span><Link href="/privacy">Privacy</Link><Link href="/sign-up">Create a studio ↗</Link></footer>
+  </main>;
 }

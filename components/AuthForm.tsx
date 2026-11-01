@@ -115,7 +115,7 @@ export default function AuthForm({
           setError(authErrorMessage({ code: "email_not_confirmed" }, mode));
           return;
         }
-        window.location.assign("/");
+        window.location.assign("/studio");
         return;
       }
       if (mode === "sign-up") {
@@ -358,7 +358,7 @@ export default function AuthForm({
             </form>
           )}
           {complete && mode === "reset-password" && (
-            <Link className="primary auth-return" href="/">
+            <Link className="primary auth-return" href="/studio">
               Return to studio <ArrowRight size={16} />
             </Link>
           )}

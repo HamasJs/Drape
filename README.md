@@ -35,3 +35,7 @@ Tests include actual PostgreSQL migration/RLS checks using PGlite, provider cont
 Pricing: exact window width in meters × SAR 250 American / 350 Wavy / 550 Double. Height never changes price. Double includes sheer/chiffon + blackout. Currency rounds to two decimals per window. Final rates include all charges.
 
 This release provides one private workspace per verified account. Team roles, payments, automatic sending, self-service account deletion, Arabic PDF fonts and automatic draft saving are not included. Jobs no longer save to shared localStorage. Never commit `.env.local`.
+
+### Public demo and shop settings
+
+Share `/` or `/demo` with prospects. The private application is `/studio`. Settings support custom SAR/m rates and inclusion notes; new quotes snapshot the saved settings. Existing quotes retain their pricing. Apply `supabase/migrations/002_shop_pricing.sql` after 001 before deploying this update; see `docs/PRODUCTION.md`.

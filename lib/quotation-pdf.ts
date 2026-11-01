@@ -63,7 +63,11 @@ export function quotationPdf(
   room(42);
   y += 5;
   write(`TOTAL   SAR ${money(total(job))}`, 19, true);
-  write("Final customer price. No additional charges.", 10);
+  write(branding.priceNote ?? "Final customer price. No additional charges.", 10);
+  if (branding.installation) write(`Installation: ${branding.installation}`, 10);
+  if (branding.delivery) write(`Delivery: ${branding.delivery}`, 10);
+  if (branding.otherCharges) write(`Other charges / tax: ${branding.otherCharges}`, 10);
+  write("Prepared and checked by the shop. Customer acceptance is not recorded.", 9);
   write(
     "Height does not affect pricing. Double includes sheer/chiffon + blackout.",
     9,

@@ -1,4 +1,4 @@
 import type { MetadataRoute } from "next";
 export default function robots(): MetadataRoute.Robots {
-  return { rules: { userAgent: "*", disallow: "/" } };
+ return { rules: { userAgent: "*", allow: ["/", "/demo"], disallow: ["/studio", "/api/", "/sign-in", "/sign-up", "/reset-password", "/auth/"] } };
 }

@@ -12,7 +12,7 @@ export async function GET(request: Request) {
   const next =
     url.searchParams.get("next") === "/reset-password" || type === "recovery"
       ? "/reset-password"
-      : "/";
+      : "/studio";
   if (authConfigured()) {
     const auth = await serverAuth();
     if (

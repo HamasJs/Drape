@@ -53,8 +53,18 @@ export type Profile = {
   contact: string;
   address: string;
   terms: string;
+  rates?: Record<keyof typeof RATES, number>;
+  priceNote?: string;
+  installation?: string;
+  delivery?: string;
+  otherCharges?: string;
 };
 export const DEFAULT_PROFILE: Profile = {
+  rates: { ...RATES },
+  priceNote: "All included. No extra charges.",
+  installation: "Included",
+  delivery: "Included",
+  otherCharges: "None",
   businessName: "Drape Studio",
   contact: "",
   address: "",
@@ -78,7 +88,21 @@ export function validateProfile(input: unknown): Profile {
     throw new Error(
       "Enter a business name and keep the profile fields within their limits.",
     );
+  const rates = p.rates ?? RATES;
+  for (const key of Object.keys(RATES) as (keyof typeof RATES)[]) {
+    const rate = rates[key];
+    if (typeof rate !== "number" || !Number.isFinite(rate) || rate <= 0 || rate > 100000 || Math.abs(rate * 100 - Math.round(rate * 100)) > 0.000001)
+      throw new Error("Rates must be between SAR 0.01 and 100,000 with at most two decimals.");
+  }
+  for (const key of ["priceNote", "installation", "delivery", "otherCharges"] as const)
+    if (p[key] !== undefined && (typeof p[key] !== "string" || p[key]!.length > 400))
+      throw new Error("Price notes must be text with at most 400 characters.");
   return {
+    rates: { ...rates },
+    priceNote: p.priceNote?.trim() ?? DEFAULT_PROFILE.priceNote,
+    installation: p.installation?.trim() ?? DEFAULT_PROFILE.installation,
+    delivery: p.delivery?.trim() ?? DEFAULT_PROFILE.delivery,
+    otherCharges: p.otherCharges?.trim() ?? DEFAULT_PROFILE.otherCharges,
     businessName: p.businessName.trim(),
     contact: p.contact.trim(),
     address: p.address.trim(),

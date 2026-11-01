@@ -522,7 +522,7 @@ export default function QuoteAssistant({ job, onApply }: Props) {
               </ul>
               <p>
                 You can fill missing measurements in the quotation form before
-                approval.
+                marking it ready to send.
               </p>
             </div>
           )}

@@ -18,6 +18,7 @@ import { DEFAULT_PROFILE, type Profile } from "../lib/job-validation";
 import QuoteAssistant from "./QuoteAssistant";
 import {
   RATES,
+  quoteStatus,
   issues,
   isSavedJob,
   lineTotal,
@@ -40,17 +41,18 @@ const newWindow = (): WindowItem => ({
   style: "Wavy",
   confirmed: false,
 });
-function newJob(): Job {
+function newJob(profile: Profile = DEFAULT_PROFILE): Job {
   return {
     id: crypto.randomUUID(),
-    number: `QT-${Date.now().toString().slice(-7)}`,
+    number: "Assigned on save",
     customer: "",
     phone: "",
     notes: "",
     windows: [newWindow()],
     status: "Draft",
     updatedAt: new Date().toISOString(),
-    rates: { ...RATES },
+    rates: { ...(profile.rates ?? RATES) },
+    branding: { ...profile },
   };
 }
 export default function QuoteStudio({
@@ -74,6 +76,7 @@ export default function QuoteStudio({
     [search, setSearch] = useState(""),
     [dirty, setDirty] = useState(false),
     [legacy, setLegacy] = useState<Job[]>([]);
+  const [savedProfile, setSavedProfile] = useState<Profile>(DEFAULT_PROFILE);
   const savingRef = useRef(false);
   const allowUnload = useRef(false);
   useEffect(() => {
@@ -86,8 +89,9 @@ export default function QuoteStudio({
         if (!active) return;
         setJobs(saved.jobs);
         setProfile(settings.profile);
+        setSavedProfile(settings.profile);
         setBusiness(settings.profile.businessName);
-        setJob(newJob());
+        setJob(newJob(settings.profile));
         setReady(true);
       })
       .catch((e) => {
@@ -149,6 +153,7 @@ export default function QuoteStudio({
         body: JSON.stringify({ ...profile, businessName: business }),
       });
       setProfile(data.profile);
+      setSavedProfile(data.profile);
       setNotice("Business profile saved.");
     } catch (e) {
       setNotice(e instanceof Error ? e.message : "Could not save profile.");
@@ -169,7 +174,7 @@ export default function QuoteStudio({
     if (
       !legacy.length ||
       !window.confirm(
-        "Import these browser drafts into this signed-in account? They will be imported as unapproved drafts.",
+        "Import these browser drafts into this signed-in account? They will be imported as drafts awaiting review.",
       )
     )
       return;
@@ -280,7 +285,7 @@ export default function QuoteStudio({
       setJob(saved);
       setDirty(false);
       setNotice(
-        approve ? "Approved and saved." : "Draft saved to your account.",
+        approve ? "Ready to send. Saved to your account." : "Draft saved to your account.",
       );
       setErrors([]);
       return saved;
@@ -310,7 +315,7 @@ export default function QuoteStudio({
       link.download = `${quote.number}.pdf`;
       link.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
-      setNotice("PDF downloaded. The approved quote is saved in your account.");
+      setNotice("PDF downloaded. The ready-to-send quote is saved in your account.");
     } catch (e) {
       setErrors([
         e instanceof Error
@@ -436,6 +441,13 @@ export default function QuoteStudio({
                     }
                   />
                 </label>
+                <h2>What the price includes</h2>
+                <p>Describe inclusions and exclusions clearly. These notes do not add fees to the calculated total; include any required fees in your rates.</p>
+                {(["priceNote", "installation", "delivery", "otherCharges"] as const).map((key) => (
+                  <label key={key}>{({ priceNote: "Price summary note", installation: "Installation", delivery: "Delivery", otherCharges: "Other charges / tax" })[key]}
+                    <input maxLength={400} value={profile[key] ?? DEFAULT_PROFILE[key] ?? ""} onChange={(e) => setProfile({ ...profile, [key]: e.target.value })} />
+                  </label>
+                ))}
                 <button className="primary" onClick={saveProfile}>
                   Save business profile
                 </button>
@@ -445,11 +457,11 @@ export default function QuoteStudio({
                 <a className="export-link" href="/forgot-password">
                   Reset password
                 </a>
-                <h2>Final rates</h2>
-                {Object.entries(RATES).map(([style, rate]) => (
+                <h2>Your rates</h2>
+                {Object.entries(profile.rates ?? RATES).map(([style, rate]) => (
                   <div className="rate-row" key={style}>
                     <span>{style}</span>
-                    <strong>SAR {rate} / m</strong>
+                    <label>SAR / m<input aria-label={`${style} rate in SAR per meter`} type="number" min="0.01" max="100000" step="0.01" value={rate} onChange={(e) => setProfile({ ...profile, rates: { ...(profile.rates ?? RATES), [style]: Number(e.target.value) } })} /></label>
                   </div>
                 ))}
                 <p>
@@ -458,8 +470,7 @@ export default function QuoteStudio({
                 </p>
                 <p>
                   Jobs and revisions save privately to your account. Save before
-                  leaving. Business profile changes apply to newly saved quote
-                  revisions.
+                  leaving. Rates and terms apply to new quotes. Existing quotes retain their saved rates and terms.
                 </p>
               </section>
             </>
@@ -474,7 +485,7 @@ export default function QuoteStudio({
                   className="primary"
                   onClick={() => {
                     if (!leaveDraft()) return;
-                    setJob(newJob());
+                    setJob(newJob(savedProfile));
                     setDirty(false);
                     setHistory([]);
                     setView("quote");
@@ -522,7 +533,7 @@ export default function QuoteStudio({
                             {j.number} · {j.windows.length} windows
                           </small>
                         </span>
-                        <span className="pill">{j.status}</span>
+                        <span className="pill">{quoteStatus(j)}</span>
                         <strong>SAR {money(total(j))}</strong>
                         <ChevronRight size={17} />
                       </button>
@@ -605,7 +616,7 @@ export default function QuoteStudio({
                         className="text-button"
                         onClick={() => {
                           if (!leaveDraft()) return;
-                          setJob(newJob());
+                          setJob(newJob(savedProfile));
                           setDirty(false);
                           setHistory([]);
                           setNotice("");
@@ -742,7 +753,7 @@ export default function QuoteStudio({
                   <span className="eyebrow">03 / MAKE IT OFFICIAL</span>
                   <div className="summary-title">
                     <h2>The quote.</h2>
-                    <span className="pill">{job.status}</span>
+                    <span className="pill">{quoteStatus(job)}</span>
                   </div>
                   <p className="quote-number">{job.number}</p>
                   <div className="receipt-customer">
@@ -773,7 +784,8 @@ export default function QuoteStudio({
                     <div>
                       <small>SAR</small> {money(sum)}
                     </div>
-                    <p>All included. No extra charges.</p>
+                    <p>{(job.branding ?? DEFAULT_PROFILE).priceNote ?? DEFAULT_PROFILE.priceNote}</p>
+                    <p>Installation: {(job.branding ?? DEFAULT_PROFILE).installation ?? "Included"}<br />Delivery: {(job.branding ?? DEFAULT_PROFILE).delivery ?? "Included"}<br />Other charges: {(job.branding ?? DEFAULT_PROFILE).otherCharges ?? "None"}</p>
                   </div>
                   <label className="confirm-all">
                     <input
@@ -821,7 +833,7 @@ export default function QuoteStudio({
                     </>
                   )}
                   <p className="summary-foot">
-                    Exact measurements. Fixed rates.
+                    Team review only. Customer acceptance is not recorded.
                     <br />
                     Always reviewed by you.
                   </p>
@@ -841,7 +853,7 @@ export default function QuoteStudio({
                   {history.map((revision) => (
                     <div className="revision-row" key={revision.version}>
                       <span>
-                        Version {revision.version} · {revision.status}
+                        Version {revision.version} · {quoteStatus(revision)}
                         <small>
                           {new Date(revision.updatedAt).toLocaleString()}
                         </small>

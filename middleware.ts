@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { authConfigured, publicAuthConfig } from "./lib/supabase/config";
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request });
+  if (["/", "/demo"].includes(request.nextUrl.pathname) || /\.(png|mp4)$/.test(request.nextUrl.pathname)) return response;
   if (!authConfigured()) return response;
   const { url, key } = publicAuthConfig();
   const client = createServerClient(url, key, {
