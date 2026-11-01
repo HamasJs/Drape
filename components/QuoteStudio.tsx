@@ -1,67 +1,885 @@
-'use client';
-import { useEffect, useRef, useState } from 'react';
-import { ArrowUpRight, ChevronRight, Download, FileText, Plus, Save, Scissors, Settings2, Trash2, X } from 'lucide-react';
-import { browserAuth } from '../lib/supabase/browser';
-import { api } from '../lib/client-api';
-import { DEFAULT_PROFILE, type Profile } from '../lib/job-validation';
-import QuoteAssistant from './QuoteAssistant';
-import { RATES, issues, isSavedJob, lineTotal, total, type Job, type Style, type WindowItem } from '../lib/pricing';
-const money = (n: number) => new Intl.NumberFormat('en-SA',{minimumFractionDigits:2,maximumFractionDigits:2}).format(n);
-const key = 'drape-jobs-v1';
-const newWindow = (): WindowItem => ({id:crypto.randomUUID(),room:'',width:'',height:'',style:'Wavy',confirmed:false});
-function newJob(): Job { return {id:crypto.randomUUID(),number:`QT-${Date.now().toString().slice(-7)}`,customer:'',phone:'',notes:'',windows:[newWindow()],status:'Draft',updatedAt:new Date().toISOString(),rates:{...RATES}}; }
-export default function QuoteStudio({email,accountId}:{email:string;accountId:string}){
- const [job,setJob]=useState<Job|null>(null),[jobs,setJobs]=useState<Job[]>([]),[ready,setReady]=useState(false),[view,setView]=useState('quote'),[notice,setNotice]=useState(''),[errors,setErrors]=useState<string[]>([]),[business,setBusiness]=useState('Drape Studio');
- const [saving,setSaving]=useState(false),[loadError,setLoadError]=useState(''),[profile,setProfile]=useState<Profile>(DEFAULT_PROFILE),[history,setHistory]=useState<Job[]>([]),[search,setSearch]=useState(''),[dirty,setDirty]=useState(false),[legacy,setLegacy]=useState<Job[]>([]);
- const savingRef=useRef(false);const allowUnload=useRef(false);
- useEffect(()=>{
-  let active=true;
-  Promise.all([api<{jobs:Job[]}>('/api/jobs'),api<{profile:Profile}>('/api/profile')]).then(([saved,settings])=>{if(!active)return;setJobs(saved.jobs);setProfile(settings.profile);setBusiness(settings.profile.businessName);setJob(newJob());setReady(true);}).catch(e=>{if(active){setLoadError(e.message);setReady(true);}});
-  // Old local data is offered for explicit import, never silently assigned to an account.
-  try{const stored=JSON.parse(localStorage.getItem(key)||'[]');if(Array.isArray(stored)&&stored.every(isSavedJob)){const imported=JSON.parse(localStorage.getItem(`drape-imported-${accountId}`)||'[]');setLegacy(stored.filter(old=>!Array.isArray(imported)||!imported.includes(old.id)));}}catch{ /* Preserve unreadable legacy data untouched. */ }
-  return()=>{active=false;};
- },[accountId]);
- useEffect(()=>{const warn=(event:BeforeUnloadEvent)=>{if(dirty&&!allowUnload.current){event.preventDefault();event.returnValue='';}};window.addEventListener('beforeunload',warn);return()=>window.removeEventListener('beforeunload',warn);},[dirty]);
- function leaveDraft(){return !dirty||window.confirm('You have unsaved changes. Leave without saving?');}
- async function signOut(){if(!leaveDraft())return;const {error}=await browserAuth().auth.signOut();if(error){setNotice('Could not sign out. Please try again.');return;}allowUnload.current=true;window.location.assign('/sign-in');}
- async function saveProfile(){try{const data=await api<{profile:Profile}>('/api/profile',{method:'PUT',body:JSON.stringify({...profile,businessName:business})});setProfile(data.profile);setNotice('Business profile saved.');}catch(e){setNotice(e instanceof Error?e.message:'Could not save profile.');}}
- async function showHistory(){if(!job?.version)return;try{const data=await api<{revisions:{payload:Job}[]}>(`/api/jobs/${job.id}/history`);setHistory(data.revisions.map(r=>r.payload));}catch(e){setNotice(e instanceof Error?e.message:'History unavailable.');}}
- async function importLegacy(){if(!legacy.length||!window.confirm('Import these browser drafts into this signed-in account? They will be imported as unapproved drafts.'))return;setSaving(true);let imported=0;try{for(const old of legacy){const hash=new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(`${accountId}:${old.id}`)));hash[6]=(hash[6]&15)|64;hash[8]=(hash[8]&63)|128;const hex=Array.from(hash.slice(0,16),b=>b.toString(16).padStart(2,'0')).join('');const importId=`${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;if(jobs.some(j=>j.id===importId)){imported++;continue;}const candidate={...old,id:importId,version:0,status:'Draft',windows:old.windows.map(w=>({...w,id:crypto.randomUUID(),confirmed:false}))};const {job:saved}=await api<{job:Job}>('/api/jobs',{method:'POST',body:JSON.stringify(candidate)});setJobs(prev=>[saved,...prev]);try{const marked=JSON.parse(localStorage.getItem(`drape-imported-${accountId}`)||'[]');localStorage.setItem(`drape-imported-${accountId}`,JSON.stringify([...new Set([...(Array.isArray(marked)?marked:[]),old.id])]));}catch{ /* Cloud save succeeded even if local import bookkeeping is unavailable. */ }imported++;}setLegacy([]);setNotice(`${imported} drafts imported. Original browser data was retained.`);}catch(e){setNotice(`${imported} imported. ${e instanceof Error?e.message:'Import stopped.'} Original browser data was retained.`);setLegacy(prev=>prev.slice(imported));}finally{setSaving(false);}}
- function update(patch:Partial<Job>){setDirty(true);setJob(prev=>prev?{...prev,...patch,status:'Draft'}:prev);setErrors([]);setNotice('');}
- function editWindow(id:string,patch:Partial<WindowItem>){if(job)update({windows:job.windows.map(w=>w.id===id?{...w,...patch,...(('width'in patch||'height'in patch)?{confirmed:false}:{})}:w)});}
- async function save(approve=false){
-  if(!job||savingRef.current)return;
-  const missing=issues(job);if(approve&&missing.length){setErrors(missing);return;}
-  savingRef.current=true;setSaving(true);
-  try{const {job:saved}=await api<{job:Job}>('/api/jobs',{method:'POST',body:JSON.stringify({...job,status:approve?'Approved':'Draft'})});setJobs(prev=>[saved,...prev.filter(j=>j.id!==saved.id)]);setJob(saved);setDirty(false);setNotice(approve?'Approved and saved.':'Draft saved to your account.');setErrors([]);return saved;}
-  catch(e){setErrors([e instanceof Error?e.message:'Could not save. Your edits are unchanged.']);}
-  finally{savingRef.current=false;setSaving(false);}
- }
- async function pdf(quote:Job){try{
-  const response=await fetch(`/api/jobs/${quote.id}/pdf`,{cache:'no-store'});if(!response.ok){const data=await response.json();throw new Error(data.error||'PDF unavailable.');}
-  const url=URL.createObjectURL(await response.blob());const link=document.createElement('a');link.href=url;link.download=`${quote.number}.pdf`;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);setNotice('PDF downloaded. The approved quote is saved in your account.');
- }catch(e){setErrors([e instanceof Error?e.message:'PDF failed. The saved quote is available for retry.']);}}
- if(loadError)return <main className="setup-shell"><h1>Couldn’t load your studio.</h1><p role="alert">{loadError}</p><button className="primary" onClick={()=>window.location.reload()}>Retry</button><button className="secondary" onClick={signOut}>Sign out</button></main>;
- if(!ready||!job)return <main className="loading">Opening your studio…</main>;
- const sum=total(job), meters=job.windows.reduce((s,w)=>s+(Number(w.width)>0?Number(w.width)/100:0),0);
- return <fieldset className="studio-fieldset" disabled={saving}><div className="studio-shell">
- <header className="studio-nav"><button className="brand" onClick={()=>setView('quote')}><Scissors size={23}/>drape<span>✳</span></button><nav><button className={view==='quote'?'active':''} onClick={()=>setView('quote')}>Create quote</button><button className={view==='jobs'?'active':''} onClick={()=>setView('jobs')}>Saved jobs <span>{jobs.length}</span></button><button className={view==='settings'?'active':''} onClick={()=>setView('settings')} aria-label="Settings"><Settings2 size={18}/></button><button onClick={signOut}>Sign out</button></nav></header>
- <main><div className="account-strip"><span>{email}</span><span>Private workspace · cloud saved</span></div>{notice&&view!=='quote'&&<div className="notice" role="status">{notice}</div>}{legacy.length>0&&<div className="legacy-banner">{legacy.length} older browser drafts are available. <button className="text-button" onClick={importLegacy}>Import into this account</button></div>}
- {view==='settings'?<><div className="page-heading"><div><span className="eyebrow">THE NUMBERS BEHIND IT</span><h1>Your studio.</h1></div></div><section className="card settings"><label>Business name<input maxLength={150} value={business} onChange={e=>setBusiness(e.target.value)}/></label><label>Business contact<input maxLength={200} value={profile.contact} onChange={e=>setProfile({...profile,contact:e.target.value})}/></label><label>Business address<input maxLength={400} value={profile.address} onChange={e=>setProfile({...profile,address:e.target.value})}/></label><label>Quotation terms<textarea rows={3} maxLength={2000} value={profile.terms} onChange={e=>setProfile({...profile,terms:e.target.value})}/></label><button className="primary" onClick={saveProfile}>Save business profile</button><a className="export-link" href="/api/account-export">Download account data (JSON)</a><a className="export-link" href="/forgot-password">Reset password</a><h2>Final rates</h2>{Object.entries(RATES).map(([style,rate])=><div className="rate-row" key={style}><span>{style}</span><strong>SAR {rate} / m</strong></div>)}<p>Exact window width × rate. Height does not affect price. Double includes sheer/chiffon + blackout.</p><p>Jobs and revisions save privately to your account. Save before leaving. Business profile changes apply to newly saved quote revisions.</p></section></>:view==='jobs'?<><div className="page-heading"><div><span className="eyebrow">ALL IN ONE PLACE</span><h1>Good work, saved.</h1></div><button className="primary" onClick={()=>{if(!leaveDraft())return;setJob(newJob());setDirty(false);setHistory([]);setView('quote');setErrors([]);setNotice('');}}><Plus size={16}/>New quote</button></div><section className="card job-list"><label className="job-search">Find a quote<input type="search" placeholder="Customer or quote number…" value={search} onChange={e=>setSearch(e.target.value)}/></label>{jobs.length?jobs.filter(j=>`${j.customer} ${j.number}`.toLowerCase().includes(search.toLowerCase())).map(j=><button key={j.id} onClick={()=>{if(!leaveDraft())return;setJob(structuredClone(j));setDirty(false);setHistory([]);setView('quote');setErrors([]);setNotice('');}}><span><strong>{j.customer||'Unnamed customer'}</strong><small>{j.number} · {j.windows.length} windows</small></span><span className="pill">{j.status}</span><strong>SAR {money(total(j))}</strong><ChevronRight size={17}/></button>):<div className="empty"><FileText size={30}/><h2>Your next project starts here.</h2><p>Saved quotes will appear in this space.</p></div>}</section></>:<>
- <div className="page-heading hero"><div><span className="eyebrow"><span className="live-dot"/>LESS ADMIN. MORE CREATING.</span><h1>From window<br/>to <em>wow.</em><span className="hero-star">✳</span></h1><p>Say it. Check it. Quote it.</p></div><div className="hero-art" aria-hidden="true"><div className="curtain curtain-left"/><div className="curtain curtain-right"/><span>Made to measure.<br/>Ready in moments.</span></div></div>
- {notice&&<div className="notice" role="status">{notice}<button aria-label="Dismiss notification" onClick={()=>setNotice('')}><X size={16}/></button></div>}
- {errors.length>0&&<div className="errors" role="alert"><strong>Almost there</strong>{errors.map(e=><div key={e}>{e}</div>)}</div>}
- <div className="workspace-grid"><div className="editor"><QuoteAssistant key={job.id} job={job} onApply={next=>{setDirty(true);setJob(next);setErrors([]);setNotice('Details added. Check your windows, then generate your quote.');}}/>
- <section className="card quote-editor"><div className="section-heading"><div><span className="eyebrow">02 / CHECK THE DETAILS</span><h2>Your windows, your way.</h2></div><button className="text-button" onClick={()=>{if(!leaveDraft())return;setJob(newJob());setDirty(false);setHistory([]);setNotice('');setErrors([]);}}>Start fresh</button></div>
- <div className="fields customer-fields"><label>Customer name<input placeholder="Who’s it for?" value={job.customer} onChange={e=>update({customer:e.target.value})}/></label><label>Phone <small>optional</small><input type="tel" placeholder="+966…" value={job.phone} onChange={e=>update({phone:e.target.value})}/></label></div>
- <div className="table-note">Measurements in cm · exact width pricing</div>
- {job.windows.map((w,i)=><div className="compact-window" key={w.id}><span className="row-index">{String(i+1).padStart(2,'0')}</span><label className="room">Room<input placeholder="Living room" value={w.room} onChange={e=>editWindow(w.id,{room:e.target.value})}/></label><label>Width<input type="number" min="0.01" step="any" placeholder="240" value={w.width} onChange={e=>editWindow(w.id,{width:e.target.value})}/></label><label>Height<input type="number" min="0.01" step="any" placeholder="280" value={w.height} onChange={e=>editWindow(w.id,{height:e.target.value})}/></label><label className="option">Style<select value={w.style} onChange={e=>editWindow(w.id,{style:e.target.value as Style,confirmed:false})}>{(Object.keys(RATES) as Style[]).map(style=><option key={style}>{style}</option>)}</select></label><strong className="row-price">{money(lineTotal(w.width,job.rates[w.style]))}<small>SAR</small></strong><button className="icon-button" aria-label={`Remove window ${i+1}`} onClick={()=>update({windows:job.windows.filter(x=>x.id!==w.id).map(x=>({...x,confirmed:false}))})}><Trash2 size={15}/></button></div>)}
- <button className="add-window" onClick={()=>update({windows:[...job.windows,newWindow()]})}><Plus size={16}/>Add window</button>
- <details className="optional-notes"><summary>Add notes <span>optional</span></summary><label>Notes for the customer<textarea rows={2} placeholder="Fabric, installation, or other details…" value={job.notes} onChange={e=>update({notes:e.target.value})}/></label></details>
- </section></div>
- <aside className="summary"><span className="eyebrow">03 / MAKE IT OFFICIAL</span><div className="summary-title"><h2>The quote.</h2><span className="pill">{job.status}</span></div><p className="quote-number">{job.number}</p><div className="receipt-customer">{job.customer||'Your customer'}<small>{job.windows.length} windows · {meters.toLocaleString('en',{maximumFractionDigits:4})} m</small></div><div className="summary-lines">{job.windows.map((w,i)=><div key={w.id}><span><strong>{w.room||`Window ${i+1}`}</strong><small>{w.style} · {Number(w.width)/100||0} m</small></span><b>{money(lineTotal(w.width,job.rates[w.style]))}</b></div>)}</div><div className="total"><span>Final total</span><div><small>SAR</small> {money(sum)}</div><p>All included. No extra charges.</p></div>
- <label className="confirm-all"><input type="checkbox" checked={job.windows.length>0&&job.windows.every(w=>w.confirmed)} onChange={e=>update({windows:job.windows.map(w=>({...w,confirmed:e.target.checked}))})}/>I checked all window measurements and quantities.</label>
- <button className="primary generate" onClick={async()=>{const approved=await save(true);if(approved)await pdf(approved);}}><Download size={17}/>{saving?'Saving…':'Generate quote PDF'}<ArrowUpRight size={17}/></button><button className="save-link" onClick={()=>save()}><Save size={14}/>Save for later</button>{job.version&&<><button className="save-link" onClick={showHistory}>View revision history ({job.version})</button>{job.status==='Approved'&&<button className="save-link" onClick={()=>pdf(job)}>Download saved PDF</button>}</>}<p className="summary-foot">Exact measurements. Fixed rates.<br/>Always reviewed by you.</p></aside></div>
- {history.length>0&&<section className="card revision-panel"><div className="section-heading"><h2>Revision history</h2><button className="text-button" onClick={()=>setHistory([])}>Close</button></div>{history.map(revision=><div className="revision-row" key={revision.version}><span>Version {revision.version} · {revision.status}<small>{new Date(revision.updatedAt).toLocaleString()}</small></span><strong>SAR {money(total(revision))}</strong><button className="secondary" onClick={()=>{if(!leaveDraft())return;setJob({...revision,version:job.version,status:'Draft',windows:revision.windows.map(w=>({...w,confirmed:false}))});setDirty(true);setHistory([]);}}>Use as draft</button></div>)}</section>}<footer><span>Small details. Beautiful spaces.</span><span>{business} / <a href="/privacy">Privacy & data</a></span></footer></>}
- </main></div></fieldset>;
+"use client";
+import { useEffect, useRef, useState } from "react";
+import {
+  ArrowUpRight,
+  ChevronRight,
+  Download,
+  FileText,
+  Plus,
+  Save,
+  Scissors,
+  Settings2,
+  Trash2,
+  X,
+} from "lucide-react";
+import { browserAuth } from "../lib/supabase/browser";
+import { api } from "../lib/client-api";
+import { DEFAULT_PROFILE, type Profile } from "../lib/job-validation";
+import QuoteAssistant from "./QuoteAssistant";
+import {
+  RATES,
+  issues,
+  isSavedJob,
+  lineTotal,
+  total,
+  type Job,
+  type Style,
+  type WindowItem,
+} from "../lib/pricing";
+const money = (n: number) =>
+  new Intl.NumberFormat("en-SA", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(n);
+const key = "drape-jobs-v1";
+const newWindow = (): WindowItem => ({
+  id: crypto.randomUUID(),
+  room: "",
+  width: "",
+  height: "",
+  style: "Wavy",
+  confirmed: false,
+});
+function newJob(): Job {
+  return {
+    id: crypto.randomUUID(),
+    number: `QT-${Date.now().toString().slice(-7)}`,
+    customer: "",
+    phone: "",
+    notes: "",
+    windows: [newWindow()],
+    status: "Draft",
+    updatedAt: new Date().toISOString(),
+    rates: { ...RATES },
+  };
+}
+export default function QuoteStudio({
+  email,
+  accountId,
+}: {
+  email: string;
+  accountId: string;
+}) {
+  const [job, setJob] = useState<Job | null>(null),
+    [jobs, setJobs] = useState<Job[]>([]),
+    [ready, setReady] = useState(false),
+    [view, setView] = useState("quote"),
+    [notice, setNotice] = useState(""),
+    [errors, setErrors] = useState<string[]>([]),
+    [business, setBusiness] = useState("Drape Studio");
+  const [saving, setSaving] = useState(false),
+    [loadError, setLoadError] = useState(""),
+    [profile, setProfile] = useState<Profile>(DEFAULT_PROFILE),
+    [history, setHistory] = useState<Job[]>([]),
+    [search, setSearch] = useState(""),
+    [dirty, setDirty] = useState(false),
+    [legacy, setLegacy] = useState<Job[]>([]);
+  const savingRef = useRef(false);
+  const allowUnload = useRef(false);
+  useEffect(() => {
+    let active = true;
+    Promise.all([
+      api<{ jobs: Job[] }>("/api/jobs"),
+      api<{ profile: Profile }>("/api/profile"),
+    ])
+      .then(([saved, settings]) => {
+        if (!active) return;
+        setJobs(saved.jobs);
+        setProfile(settings.profile);
+        setBusiness(settings.profile.businessName);
+        setJob(newJob());
+        setReady(true);
+      })
+      .catch((e) => {
+        if (active) {
+          setLoadError(e.message);
+          setReady(true);
+        }
+      });
+    // Old local data is offered for explicit import, never silently assigned to an account.
+    try {
+      const stored = JSON.parse(localStorage.getItem(key) || "[]");
+      if (Array.isArray(stored) && stored.every(isSavedJob)) {
+        const imported = JSON.parse(
+          localStorage.getItem(`drape-imported-${accountId}`) || "[]",
+        );
+        setLegacy(
+          stored.filter(
+            (old) => !Array.isArray(imported) || !imported.includes(old.id),
+          ),
+        );
+      }
+    } catch {
+      /* Preserve unreadable legacy data untouched. */
+    }
+    return () => {
+      active = false;
+    };
+  }, [accountId]);
+  useEffect(() => {
+    const warn = (event: BeforeUnloadEvent) => {
+      if (dirty && !allowUnload.current) {
+        event.preventDefault();
+        event.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
+  function leaveDraft() {
+    return (
+      !dirty ||
+      window.confirm("You have unsaved changes. Leave without saving?")
+    );
+  }
+  async function signOut() {
+    if (!leaveDraft()) return;
+    const { error } = await browserAuth().auth.signOut();
+    if (error) {
+      setNotice("Could not sign out. Please try again.");
+      return;
+    }
+    allowUnload.current = true;
+    window.location.assign("/sign-in");
+  }
+  async function saveProfile() {
+    try {
+      const data = await api<{ profile: Profile }>("/api/profile", {
+        method: "PUT",
+        body: JSON.stringify({ ...profile, businessName: business }),
+      });
+      setProfile(data.profile);
+      setNotice("Business profile saved.");
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : "Could not save profile.");
+    }
+  }
+  async function showHistory() {
+    if (!job?.version) return;
+    try {
+      const data = await api<{ revisions: { payload: Job }[] }>(
+        `/api/jobs/${job.id}/history`,
+      );
+      setHistory(data.revisions.map((r) => r.payload));
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : "History unavailable.");
+    }
+  }
+  async function importLegacy() {
+    if (
+      !legacy.length ||
+      !window.confirm(
+        "Import these browser drafts into this signed-in account? They will be imported as unapproved drafts.",
+      )
+    )
+      return;
+    setSaving(true);
+    let imported = 0;
+    try {
+      for (const old of legacy) {
+        const hash = new Uint8Array(
+          await crypto.subtle.digest(
+            "SHA-256",
+            new TextEncoder().encode(`${accountId}:${old.id}`),
+          ),
+        );
+        hash[6] = (hash[6] & 15) | 64;
+        hash[8] = (hash[8] & 63) | 128;
+        const hex = Array.from(hash.slice(0, 16), (b) =>
+          b.toString(16).padStart(2, "0"),
+        ).join("");
+        const importId = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+        if (jobs.some((j) => j.id === importId)) {
+          imported++;
+          continue;
+        }
+        const candidate = {
+          ...old,
+          id: importId,
+          version: 0,
+          status: "Draft",
+          windows: old.windows.map((w) => ({
+            ...w,
+            id: crypto.randomUUID(),
+            confirmed: false,
+          })),
+        };
+        const { job: saved } = await api<{ job: Job }>("/api/jobs", {
+          method: "POST",
+          body: JSON.stringify(candidate),
+        });
+        setJobs((prev) => [saved, ...prev]);
+        try {
+          const marked = JSON.parse(
+            localStorage.getItem(`drape-imported-${accountId}`) || "[]",
+          );
+          localStorage.setItem(
+            `drape-imported-${accountId}`,
+            JSON.stringify([
+              ...new Set([...(Array.isArray(marked) ? marked : []), old.id]),
+            ]),
+          );
+        } catch {
+          /* Cloud save succeeded even if local import bookkeeping is unavailable. */
+        }
+        imported++;
+      }
+      setLegacy([]);
+      setNotice(
+        `${imported} drafts imported. Original browser data was retained.`,
+      );
+    } catch (e) {
+      setNotice(
+        `${imported} imported. ${e instanceof Error ? e.message : "Import stopped."} Original browser data was retained.`,
+      );
+      setLegacy((prev) => prev.slice(imported));
+    } finally {
+      setSaving(false);
+    }
+  }
+  function update(patch: Partial<Job>) {
+    setDirty(true);
+    setJob((prev) => (prev ? { ...prev, ...patch, status: "Draft" } : prev));
+    setErrors([]);
+    setNotice("");
+  }
+  function editWindow(id: string, patch: Partial<WindowItem>) {
+    if (job)
+      update({
+        windows: job.windows.map((w) =>
+          w.id === id
+            ? {
+                ...w,
+                ...patch,
+                ...("width" in patch || "height" in patch
+                  ? { confirmed: false }
+                  : {}),
+              }
+            : w,
+        ),
+      });
+  }
+  async function save(approve = false) {
+    if (!job || savingRef.current) return;
+    const missing = issues(job);
+    if (approve && missing.length) {
+      setErrors(missing);
+      return;
+    }
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      const { job: saved } = await api<{ job: Job }>("/api/jobs", {
+        method: "POST",
+        body: JSON.stringify({
+          ...job,
+          status: approve ? "Approved" : "Draft",
+        }),
+      });
+      setJobs((prev) => [saved, ...prev.filter((j) => j.id !== saved.id)]);
+      setJob(saved);
+      setDirty(false);
+      setNotice(
+        approve ? "Approved and saved." : "Draft saved to your account.",
+      );
+      setErrors([]);
+      return saved;
+    } catch (e) {
+      setErrors([
+        e instanceof Error
+          ? e.message
+          : "Could not save. Your edits are unchanged.",
+      ]);
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
+  }
+  async function pdf(quote: Job) {
+    try {
+      const response = await fetch(`/api/jobs/${quote.id}/pdf`, {
+        cache: "no-store",
+      });
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "PDF unavailable.");
+      }
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${quote.number}.pdf`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setNotice("PDF downloaded. The approved quote is saved in your account.");
+    } catch (e) {
+      setErrors([
+        e instanceof Error
+          ? e.message
+          : "PDF failed. The saved quote is available for retry.",
+      ]);
+    }
+  }
+  if (loadError)
+    return (
+      <main className="setup-shell">
+        <h1>Couldn’t load your studio.</h1>
+        <p role="alert">{loadError}</p>
+        <button className="primary" onClick={() => window.location.reload()}>
+          Retry
+        </button>
+        <button className="secondary" onClick={signOut}>
+          Sign out
+        </button>
+      </main>
+    );
+  if (!ready || !job)
+    return <main className="loading">Opening your studio…</main>;
+  const sum = total(job),
+    meters = job.windows.reduce(
+      (s, w) => s + (Number(w.width) > 0 ? Number(w.width) / 100 : 0),
+      0,
+    );
+  return (
+    <fieldset className="studio-fieldset" disabled={saving}>
+      <div className="studio-shell">
+        <header className="studio-nav">
+          <button className="brand" onClick={() => setView("quote")}>
+            <Scissors size={23} />
+            drape<span>✳</span>
+          </button>
+          <nav>
+            <button
+              className={view === "quote" ? "active" : ""}
+              onClick={() => setView("quote")}
+            >
+              Create quote
+            </button>
+            <button
+              className={view === "jobs" ? "active" : ""}
+              onClick={() => setView("jobs")}
+            >
+              Saved jobs <span>{jobs.length}</span>
+            </button>
+            <button
+              className={view === "settings" ? "active" : ""}
+              onClick={() => setView("settings")}
+              aria-label="Settings"
+            >
+              <Settings2 size={18} />
+            </button>
+            <button onClick={signOut}>Sign out</button>
+          </nav>
+        </header>
+        <main>
+          <div className="account-strip">
+            <span>{email}</span>
+            <span>Private workspace · cloud saved</span>
+          </div>
+          {notice && view !== "quote" && (
+            <div className="notice" role="status">
+              {notice}
+            </div>
+          )}
+          {legacy.length > 0 && (
+            <div className="legacy-banner">
+              {legacy.length} older browser drafts are available.{" "}
+              <button className="text-button" onClick={importLegacy}>
+                Import into this account
+              </button>
+            </div>
+          )}
+          {view === "settings" ? (
+            <>
+              <div className="page-heading">
+                <div>
+                  <span className="eyebrow">THE NUMBERS BEHIND IT</span>
+                  <h1>Your studio.</h1>
+                </div>
+              </div>
+              <section className="card settings">
+                <label>
+                  Business name
+                  <input
+                    maxLength={150}
+                    value={business}
+                    onChange={(e) => setBusiness(e.target.value)}
+                  />
+                </label>
+                <label>
+                  Business contact
+                  <input
+                    maxLength={200}
+                    value={profile.contact}
+                    onChange={(e) =>
+                      setProfile({ ...profile, contact: e.target.value })
+                    }
+                  />
+                </label>
+                <label>
+                  Business address
+                  <input
+                    maxLength={400}
+                    value={profile.address}
+                    onChange={(e) =>
+                      setProfile({ ...profile, address: e.target.value })
+                    }
+                  />
+                </label>
+                <label>
+                  Quotation terms
+                  <textarea
+                    rows={3}
+                    maxLength={2000}
+                    value={profile.terms}
+                    onChange={(e) =>
+                      setProfile({ ...profile, terms: e.target.value })
+                    }
+                  />
+                </label>
+                <button className="primary" onClick={saveProfile}>
+                  Save business profile
+                </button>
+                <a className="export-link" href="/api/account-export">
+                  Download account data (JSON)
+                </a>
+                <a className="export-link" href="/forgot-password">
+                  Reset password
+                </a>
+                <h2>Final rates</h2>
+                {Object.entries(RATES).map(([style, rate]) => (
+                  <div className="rate-row" key={style}>
+                    <span>{style}</span>
+                    <strong>SAR {rate} / m</strong>
+                  </div>
+                ))}
+                <p>
+                  Exact window width × rate. Height does not affect price.
+                  Double includes sheer/chiffon + blackout.
+                </p>
+                <p>
+                  Jobs and revisions save privately to your account. Save before
+                  leaving. Business profile changes apply to newly saved quote
+                  revisions.
+                </p>
+              </section>
+            </>
+          ) : view === "jobs" ? (
+            <>
+              <div className="page-heading">
+                <div>
+                  <span className="eyebrow">ALL IN ONE PLACE</span>
+                  <h1>Good work, saved.</h1>
+                </div>
+                <button
+                  className="primary"
+                  onClick={() => {
+                    if (!leaveDraft()) return;
+                    setJob(newJob());
+                    setDirty(false);
+                    setHistory([]);
+                    setView("quote");
+                    setErrors([]);
+                    setNotice("");
+                  }}
+                >
+                  <Plus size={16} />
+                  New quote
+                </button>
+              </div>
+              <section className="card job-list">
+                <label className="job-search">
+                  Find a quote
+                  <input
+                    type="search"
+                    placeholder="Customer or quote number…"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                  />
+                </label>
+                {jobs.length ? (
+                  jobs
+                    .filter((j) =>
+                      `${j.customer} ${j.number}`
+                        .toLowerCase()
+                        .includes(search.toLowerCase()),
+                    )
+                    .map((j) => (
+                      <button
+                        key={j.id}
+                        onClick={() => {
+                          if (!leaveDraft()) return;
+                          setJob(structuredClone(j));
+                          setDirty(false);
+                          setHistory([]);
+                          setView("quote");
+                          setErrors([]);
+                          setNotice("");
+                        }}
+                      >
+                        <span>
+                          <strong>{j.customer || "Unnamed customer"}</strong>
+                          <small>
+                            {j.number} · {j.windows.length} windows
+                          </small>
+                        </span>
+                        <span className="pill">{j.status}</span>
+                        <strong>SAR {money(total(j))}</strong>
+                        <ChevronRight size={17} />
+                      </button>
+                    ))
+                ) : (
+                  <div className="empty">
+                    <FileText size={30} />
+                    <h2>Your next project starts here.</h2>
+                    <p>Saved quotes will appear in this space.</p>
+                  </div>
+                )}
+              </section>
+            </>
+          ) : (
+            <>
+              <div className="page-heading hero">
+                <div>
+                  <span className="eyebrow">
+                    <span className="live-dot" />
+                    LESS ADMIN. MORE CREATING.
+                  </span>
+                  <h1>
+                    From window
+                    <br />
+                    to <em>wow.</em>
+                    <span className="hero-star">✳</span>
+                  </h1>
+                  <p>Say it. Check it. Quote it.</p>
+                </div>
+                <div className="hero-art" aria-hidden="true">
+                  <div className="curtain curtain-left" />
+                  <div className="curtain curtain-right" />
+                  <span>
+                    Made to measure.
+                    <br />
+                    Ready in moments.
+                  </span>
+                </div>
+              </div>
+              {notice && (
+                <div className="notice" role="status">
+                  {notice}
+                  <button
+                    aria-label="Dismiss notification"
+                    onClick={() => setNotice("")}
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+              )}
+              {errors.length > 0 && (
+                <div className="errors" role="alert">
+                  <strong>Almost there</strong>
+                  {errors.map((e) => (
+                    <div key={e}>{e}</div>
+                  ))}
+                </div>
+              )}
+              <div className="workspace-grid">
+                <div className="editor">
+                  <QuoteAssistant
+                    key={job.id}
+                    job={job}
+                    onApply={(next) => {
+                      setDirty(true);
+                      setJob(next);
+                      setErrors([]);
+                      setNotice(
+                        "Details added. Check your windows, then generate your quote.",
+                      );
+                    }}
+                  />
+                  <section className="card quote-editor">
+                    <div className="section-heading">
+                      <div>
+                        <span className="eyebrow">02 / CHECK THE DETAILS</span>
+                        <h2>Your windows, your way.</h2>
+                      </div>
+                      <button
+                        className="text-button"
+                        onClick={() => {
+                          if (!leaveDraft()) return;
+                          setJob(newJob());
+                          setDirty(false);
+                          setHistory([]);
+                          setNotice("");
+                          setErrors([]);
+                        }}
+                      >
+                        Start fresh
+                      </button>
+                    </div>
+                    <div className="fields customer-fields">
+                      <label>
+                        Customer name
+                        <input
+                          placeholder="Who’s it for?"
+                          value={job.customer}
+                          onChange={(e) => update({ customer: e.target.value })}
+                        />
+                      </label>
+                      <label>
+                        Phone <small>optional</small>
+                        <input
+                          type="tel"
+                          placeholder="+966…"
+                          value={job.phone}
+                          onChange={(e) => update({ phone: e.target.value })}
+                        />
+                      </label>
+                    </div>
+                    <div className="table-note">
+                      Measurements in cm · exact width pricing
+                    </div>
+                    {job.windows.map((w, i) => (
+                      <div className="compact-window" key={w.id}>
+                        <span className="row-index">
+                          {String(i + 1).padStart(2, "0")}
+                        </span>
+                        <label className="room">
+                          Room
+                          <input
+                            placeholder="Living room"
+                            value={w.room}
+                            onChange={(e) =>
+                              editWindow(w.id, { room: e.target.value })
+                            }
+                          />
+                        </label>
+                        <label>
+                          Width
+                          <input
+                            type="number"
+                            min="0.01"
+                            step="any"
+                            placeholder="240"
+                            value={w.width}
+                            onChange={(e) =>
+                              editWindow(w.id, { width: e.target.value })
+                            }
+                          />
+                        </label>
+                        <label>
+                          Height
+                          <input
+                            type="number"
+                            min="0.01"
+                            step="any"
+                            placeholder="280"
+                            value={w.height}
+                            onChange={(e) =>
+                              editWindow(w.id, { height: e.target.value })
+                            }
+                          />
+                        </label>
+                        <label className="option">
+                          Style
+                          <select
+                            value={w.style}
+                            onChange={(e) =>
+                              editWindow(w.id, {
+                                style: e.target.value as Style,
+                                confirmed: false,
+                              })
+                            }
+                          >
+                            {(Object.keys(RATES) as Style[]).map((style) => (
+                              <option key={style}>{style}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <strong className="row-price">
+                          {money(lineTotal(w.width, job.rates[w.style]))}
+                          <small>SAR</small>
+                        </strong>
+                        <button
+                          className="icon-button"
+                          aria-label={`Remove window ${i + 1}`}
+                          onClick={() =>
+                            update({
+                              windows: job.windows
+                                .filter((x) => x.id !== w.id)
+                                .map((x) => ({ ...x, confirmed: false })),
+                            })
+                          }
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      className="add-window"
+                      onClick={() =>
+                        update({ windows: [...job.windows, newWindow()] })
+                      }
+                    >
+                      <Plus size={16} />
+                      Add window
+                    </button>
+                    <details className="optional-notes">
+                      <summary>
+                        Add notes <span>optional</span>
+                      </summary>
+                      <label>
+                        Notes for the customer
+                        <textarea
+                          rows={2}
+                          placeholder="Fabric, installation, or other details…"
+                          value={job.notes}
+                          onChange={(e) => update({ notes: e.target.value })}
+                        />
+                      </label>
+                    </details>
+                  </section>
+                </div>
+                <aside className="summary">
+                  <span className="eyebrow">03 / MAKE IT OFFICIAL</span>
+                  <div className="summary-title">
+                    <h2>The quote.</h2>
+                    <span className="pill">{job.status}</span>
+                  </div>
+                  <p className="quote-number">{job.number}</p>
+                  <div className="receipt-customer">
+                    {job.customer || "Your customer"}
+                    <small>
+                      {job.windows.length} windows ·{" "}
+                      {meters.toLocaleString("en", {
+                        maximumFractionDigits: 4,
+                      })}{" "}
+                      m
+                    </small>
+                  </div>
+                  <div className="summary-lines">
+                    {job.windows.map((w, i) => (
+                      <div key={w.id}>
+                        <span>
+                          <strong>{w.room || `Window ${i + 1}`}</strong>
+                          <small>
+                            {w.style} · {Number(w.width) / 100 || 0} m
+                          </small>
+                        </span>
+                        <b>{money(lineTotal(w.width, job.rates[w.style]))}</b>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="total">
+                    <span>Final total</span>
+                    <div>
+                      <small>SAR</small> {money(sum)}
+                    </div>
+                    <p>All included. No extra charges.</p>
+                  </div>
+                  <label className="confirm-all">
+                    <input
+                      type="checkbox"
+                      checked={
+                        job.windows.length > 0 &&
+                        job.windows.every((w) => w.confirmed)
+                      }
+                      onChange={(e) =>
+                        update({
+                          windows: job.windows.map((w) => ({
+                            ...w,
+                            confirmed: e.target.checked,
+                          })),
+                        })
+                      }
+                    />
+                    I checked all window measurements and quantities.
+                  </label>
+                  <button
+                    className="primary generate"
+                    onClick={async () => {
+                      const approved = await save(true);
+                      if (approved) await pdf(approved);
+                    }}
+                  >
+                    <Download size={17} />
+                    {saving ? "Saving…" : "Generate quote PDF"}
+                    <ArrowUpRight size={17} />
+                  </button>
+                  <button className="save-link" onClick={() => save()}>
+                    <Save size={14} />
+                    Save for later
+                  </button>
+                  {job.version && (
+                    <>
+                      <button className="save-link" onClick={showHistory}>
+                        View revision history ({job.version})
+                      </button>
+                      {job.status === "Approved" && (
+                        <button className="save-link" onClick={() => pdf(job)}>
+                          Download saved PDF
+                        </button>
+                      )}
+                    </>
+                  )}
+                  <p className="summary-foot">
+                    Exact measurements. Fixed rates.
+                    <br />
+                    Always reviewed by you.
+                  </p>
+                </aside>
+              </div>
+              {history.length > 0 && (
+                <section className="card revision-panel">
+                  <div className="section-heading">
+                    <h2>Revision history</h2>
+                    <button
+                      className="text-button"
+                      onClick={() => setHistory([])}
+                    >
+                      Close
+                    </button>
+                  </div>
+                  {history.map((revision) => (
+                    <div className="revision-row" key={revision.version}>
+                      <span>
+                        Version {revision.version} · {revision.status}
+                        <small>
+                          {new Date(revision.updatedAt).toLocaleString()}
+                        </small>
+                      </span>
+                      <strong>SAR {money(total(revision))}</strong>
+                      <button
+                        className="secondary"
+                        onClick={() => {
+                          if (!leaveDraft()) return;
+                          setJob({
+                            ...revision,
+                            version: job.version,
+                            status: "Draft",
+                            windows: revision.windows.map((w) => ({
+                              ...w,
+                              confirmed: false,
+                            })),
+                          });
+                          setDirty(true);
+                          setHistory([]);
+                        }}
+                      >
+                        Use as draft
+                      </button>
+                    </div>
+                  ))}
+                </section>
+              )}
+              <footer>
+                <span>Small details. Beautiful spaces.</span>
+                <span>
+                  {business} / <a href="/privacy">Privacy & data</a>
+                </span>
+              </footer>
+            </>
+          )}
+        </main>
+      </div>
+    </fieldset>
+  );
 }
