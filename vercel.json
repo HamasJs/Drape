@@ -1,0 +1,8 @@
+{
+  "framework": "nextjs",
+  "buildCommand": "npm run build",
+  "functions": {
+    "app/api/extract/route.ts": { "maxDuration": 90 },
+    "app/api/transcribe/route.ts": { "maxDuration": 90 }
+  }
+}

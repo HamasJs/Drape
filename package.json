@@ -7,9 +7,12 @@
     "build": "next build",
     "start": "next start --hostname 127.0.0.1",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check:config": "node scripts/check-config.mjs"
   },
   "dependencies": {
+    "@supabase/ssr": "^0.12.7",
+    "@supabase/supabase-js": "^2.118.0",
     "jspdf": "^4.2.1",
     "lucide-react": "^0.468.0",
     "next": "^15.5.0",
@@ -17,6 +20,7 @@
     "react-dom": "^19.1.0"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.14",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",

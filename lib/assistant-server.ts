@@ -9,15 +9,17 @@ export function guardRequest(request:Request){
     // browser opened 127.0.0.1. Accept only loopback aliases on the same port.
     const loopback=new Set(['localhost','127.0.0.1','[::1]']);
     const sameLocalOrigin=loopback.has(source.hostname)&&loopback.has(target.hostname)&&source.protocol===target.protocol&&source.port===target.port;
-    if(source.origin!==target.origin&&!sameLocalOrigin)throw new AssistantError('This request must come from the quotation app.',403);
+    const configuredOrigin=process.env.APP_URL ? new URL(process.env.APP_URL).origin : null;
+    if(source.origin!==target.origin&&source.origin!==configuredOrigin&&!sameLocalOrigin)throw new AssistantError('This request must come from the quotation app.',403);
   }
   if(request.headers.get('x-quote-assistant')!=='1') throw new AssistantError('Invalid assistant request.',403);
 }
 export function apiKey(){const key=process.env.GEMINI_API_KEY;if(!key)throw new AssistantError('AI is not configured yet. Add GEMINI_API_KEY to .env.local and restart the app. Manual quoting is still available.',503);return key;}
 export function errorResponse(error:unknown){
-  if(error instanceof AssistantError)return Response.json({error:error.message},{status:error.status});
-  if(error instanceof Error && (error.name==='TimeoutError'||error.name==='AbortError'))return Response.json({error:'The request timed out. Your input is unchanged; please try again.'},{status:504});
-  return Response.json({error:'The assistant could not process this request. Your input is unchanged; please try again.'},{status:502});
+  if(error instanceof AssistantError)return Response.json({error:error.message},{status:error.status,headers:{'Cache-Control':'private, no-store'}});
+  if(error instanceof Error && (error.name==='TimeoutError'||error.name==='AbortError'))return Response.json({error:'The request timed out. Your input is unchanged; please try again.'},{status:504,headers:{'Cache-Control':'private, no-store'}});
+  console.error('Request failed',{kind:error instanceof Error?error.name:'Unknown'});
+  return Response.json({error:'The request could not be completed. Your input is unchanged; please try again.'},{status:502,headers:{'Cache-Control':'private, no-store'}});
 }
 export async function providerFetch(model:string, body:unknown){
   if(!/^[a-zA-Z0-9._-]+$/.test(model))throw new AssistantError('Invalid Gemini model configuration.',503);

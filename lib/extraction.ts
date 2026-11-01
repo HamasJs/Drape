@@ -2,7 +2,7 @@ import type { Job, Style, WindowItem } from './pricing.ts';
 export type ExtractedWindow = { room: string; widthCm: number | null; heightCm: number | null; style: Style | null };
 export type Extraction = { customer: string; phone: string; notes: string; windows: ExtractedWindow[]; warnings: string[] };
 export const MAX_DESCRIPTION = 8000;
-export const MAX_AUDIO_BYTES = 10 * 1024 * 1024;
+export const MAX_AUDIO_BYTES = 3 * 1024 * 1024;
 export const AUDIO_TYPES = ['audio/webm','audio/mp4','audio/ogg','audio/wav','audio/mpeg'];
 const stringField = { type: 'string' };
 export const extractionSchema = {

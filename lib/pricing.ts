@@ -1,11 +1,16 @@
 export const RATES = { American: 250, Wavy: 350, Double: 550 } as const;
 export type Style = keyof typeof RATES;
 export type WindowItem = { id: string; room: string; width: string; height: string; style: Style; confirmed: boolean };
-export type Job = { id: string; number: string; customer: string; phone: string; notes: string; windows: WindowItem[]; status: 'Draft' | 'Approved'; updatedAt: string; rates: Record<Style, number> };
+export type Job = { version?: number; id: string; number: string; customer: string; phone: string; notes: string; windows: WindowItem[]; status: 'Draft' | 'Approved'; updatedAt: string; rates: Record<Style, number> };
 export function lineTotal(widthCm: string, rate: number): number {
-  const width = Number(widthCm);
-  if (!Number.isFinite(width) || width <= 0 || !Number.isFinite(rate) || rate < 0) return 0;
-  return Math.round(width * rate) / 100;
+  // Decimal integer arithmetic avoids half-cent floating-point errors.
+  if(!/^\d+(\.\d{1,4})?$/.test(widthCm)||!Number.isFinite(rate)||rate<0||!Number.isSafeInteger(Math.round(rate*100)))return 0;
+  const [whole,fraction='']=widthCm.split('.');
+  const widthUnits=BigInt(whole)*10000n+BigInt(fraction.padEnd(4,'0'));
+  if(widthUnits<=0n)return 0;
+  const cents=(widthUnits*BigInt(Math.round(rate*100))+500000n)/1000000n;
+  const amount=Number(cents)/100;
+  return Number.isFinite(amount)?amount:0;
 }
 export function total(job: Job): number { return Math.round(job.windows.reduce((sum, item) => sum + lineTotal(item.width, job.rates[item.style]), 0) * 100) / 100; }
 export function issues(job: Job): string[] {
