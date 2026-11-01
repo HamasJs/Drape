@@ -5,3 +5,5 @@ node_modules/
 *.tsbuildinfo
 
 .next-production/
+
+.next-dev/
