@@ -23,7 +23,15 @@ export function errorResponse(error:unknown){
 }
 export async function providerFetch(model:string, body:unknown){
   if(!/^[a-zA-Z0-9._-]+$/.test(model))throw new AssistantError('Invalid Gemini model configuration.',503);
-  const response=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{method:'POST',headers:{'x-goog-api-key':apiKey(),'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(60000)});
+  const started=Date.now();let response:Response;
+  try{
+    response=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{method:'POST',headers:{'x-goog-api-key':apiKey(),'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(60000)});
+  }catch(error){
+    const timedOut=error instanceof Error&&(error.name==='TimeoutError'||error.name==='AbortError');
+    console.error('gemini.request_failed',{model,durationMs:Date.now()-started,reason:timedOut?'timeout':'network'});
+    throw new AssistantError(timedOut?'Gemini took longer than 60 seconds. Try a shorter description or recording.':'Could not reach Gemini. Please try again.',timedOut?504:502);
+  }
+  console.info('gemini.response',{model,status:response.status,durationMs:Date.now()-started});
   if(!response.ok){
     if(response.status===429)throw new AssistantError('Gemini is busy or its usage limit was reached. Please try again later.',429);
     if(response.status===401||response.status===403)throw new AssistantError('Gemini credentials need attention. Check GEMINI_API_KEY and model access.',503);

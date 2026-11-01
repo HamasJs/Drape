@@ -105,3 +105,9 @@ The PDF uses built-in Latin fonts. This release targets English quotations. Arab
 Code and local tests can be completed without account credentials. A production launch still requires the project credentials, migration, SMTP, backup configuration, operator privacy/contact details and hosted end-to-end verification above. Do not advertise the deployment as fully verified until those checks pass.
 
 Run `npm run check:config` locally to check required variables without printing their values. This checks presence/URL shape, not credentials, database migrations, mail delivery, or backups.
+
+## Troubleshooting AI timeouts
+
+AI routes explicitly export `maxDuration = 90`. The provider request has a 60-second timeout; Gemini 3 models use low thinking for these bounded extraction/transcription tasks. In Vercel Runtime Logs, `assistant.stage`, `assistant.failure`, `gemini.response` and `gemini.request_failed` show the stage, model, status, elapsed time and a correlation ID. They do not log descriptions, audio or keys. A 504 status alone does not distinguish an app/provider timeout from Vercel terminating the function. Check the last stage and Vercel invocation duration/error code after redeploying these logs. Request duration still depends on the model, service availability, and hosting limits.
+
+Auth forms provide accessible Show/Hide controls, local field validation, neutral unknown-email/wrong-password feedback, resend cooldowns and recovery links. Hosted delivery and provider rate limits still require the setup above.
